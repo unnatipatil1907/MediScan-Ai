@@ -54,3 +54,7 @@ Hackathon prototype only; not clinically validated. It does not diagnose or pres
 
 TROUBLESHOOTING
 If package installation fails, check internet/DNS and retry. Do not download packages from unofficial sources. If an old .venv causes import errors, delete it and repeat the manual setup.
+
+
+OCR UPDATE (v2.5)
+The Analyze report > PDF / image OCR tab can extract text from scanned PDFs and PNG/JPG images. Streamlit Cloud needs packages.txt containing tesseract-ocr, plus pytesseract, PyMuPDF, and Pillow in requirements.txt. After uploading these files to GitHub, wait for Streamlit Cloud to redeploy. OCR output must be manually checked against the original report.

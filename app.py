@@ -16,7 +16,16 @@ try:
 except ImportError:
     PdfReader = None
 
-APP_VERSION = "2.4"
+try:
+    import fitz  # PyMuPDF: render scanned PDF pages for OCR
+    import pytesseract
+    from PIL import Image
+except ImportError:
+    fitz = None
+    pytesseract = None
+    Image = None
+
+APP_VERSION = "2.5"
 
 st.set_page_config(page_title="MediScan AI", page_icon="🩺", layout="wide", initial_sidebar_state="expanded")
 
@@ -46,14 +55,48 @@ hr { border-color: #e0e9f3; }
 """, unsafe_allow_html=True)
 
 
-def extract_pdf_text(pdf_bytes: bytes) -> str:
-    if PdfReader is None:
-        raise RuntimeError("PDF support is not installed. Run: python -m pip install -r requirements.txt")
+def extract_uploaded_document(file_bytes: bytes, filename: str) -> tuple[str, str]:
+    """Extract selectable PDF text, OCR scanned PDF pages, or OCR an image.
+
+    Returns (extracted_text, method_used). OCR text must be checked against the
+    original report; this function does not create trusted structured lab rows.
+    """
+    suffix = Path(filename).suffix.lower()
+    if pytesseract is None or Image is None or fitz is None:
+        raise RuntimeError("OCR dependencies are not installed. Check requirements.txt and packages.txt, then redeploy.")
+
     try:
-        reader = PdfReader(io.BytesIO(pdf_bytes))
-        return "\n\n".join((page.extract_text() or "") for page in reader.pages).strip()
+        if suffix in {".png", ".jpg", ".jpeg", ".tif", ".tiff", ".webp"}:
+            image = Image.open(io.BytesIO(file_bytes)).convert("RGB")
+            text = pytesseract.image_to_string(image, config="--psm 6")
+            return text.strip(), "OCR from image"
+
+        if suffix != ".pdf":
+            raise ValueError("Unsupported file type. Upload a PDF, PNG, or JPG image.")
+
+        # Prefer embedded/selectable text when present.
+        selectable_text = ""
+        if PdfReader is not None:
+            reader = PdfReader(io.BytesIO(file_bytes))
+            selectable_text = "\n\n".join((page.extract_text() or "") for page in reader.pages).strip()
+        if len(selectable_text) >= 30:
+            return selectable_text, "Selectable PDF text"
+
+        # If the PDF is scanned (or has almost no selectable text), render pages and OCR them.
+        doc = fitz.open(stream=file_bytes, filetype="pdf")
+        page_texts = []
+        for page_number, page in enumerate(doc, start=1):
+            pix = page.get_pixmap(matrix=fitz.Matrix(2, 2), alpha=False)
+            image = Image.open(io.BytesIO(pix.tobytes("png"))).convert("RGB")
+            page_text = pytesseract.image_to_string(image, config="--psm 6").strip()
+            if page_text:
+                page_texts.append(f"--- Page {page_number} ---\n{page_text}")
+        doc.close()
+        return "\n\n".join(page_texts).strip(), "OCR from scanned PDF"
+    except RuntimeError:
+        raise
     except Exception as exc:
-        raise ValueError(f"Could not read this PDF: {exc}") from exc
+        raise ValueError(f"Could not read this file: {exc}") from exc
 
 
 def render_analysis(df: pd.DataFrame, source_name: str, source_type: str, raw_bytes: bytes):
@@ -192,7 +235,7 @@ if page == "Dashboard":
 
 elif page == "Analyze report":
     st.markdown('<div class="section-title">Choose your input</div>', unsafe_allow_html=True)
-    demo_tab, csv_tab, pdf_tab = st.tabs(["✨ Synthetic demo", "📄 CSV upload", "📑 PDF text"])
+    demo_tab, csv_tab, pdf_tab = st.tabs(["✨ Synthetic demo", "📄 CSV upload", "📑 PDF / image OCR"])
     with demo_tab:
         st.caption("All values below are synthetic and are for demonstration only.")
         demo = pd.DataFrame([
@@ -243,27 +286,27 @@ elif page == "Analyze report":
                     st.session_state.pop("processed_csv_signature", None)
                     st.error("We couldn't process this file. Check that it is a valid CSV and try again. If the problem continues, use the sample file.")
     with pdf_tab:
-        st.write("PDF text extraction is for review only. Arbitrary PDF layouts are not automatically converted into trusted structured test rows.")
-        pdf_upload = st.file_uploader("Select a text-based PDF", type=["pdf"], key="pdf_file")
-        if st.button("Extract PDF text", type="primary"):
-            if pdf_upload is None:
-                st.error("Choose a PDF before clicking Extract PDF text.")
+        st.write("Upload a PDF or a clear photo of a lab report. Scanned pages and images are read with OCR. The extracted text is for manual review and is not automatically converted into trusted lab results.")
+        document_upload = st.file_uploader("Select a PDF or report image", type=["pdf", "png", "jpg", "jpeg", "tif", "tiff", "webp"], key="pdf_file")
+        if st.button("Extract text with OCR", type="primary"):
+            if document_upload is None:
+                st.error("Choose a PDF or image before clicking Extract text with OCR.")
             else:
                 try:
-                    extracted = extract_pdf_text(pdf_upload.getvalue())
+                    extracted, extraction_method = extract_uploaded_document(document_upload.getvalue(), document_upload.name)
                     if extracted:
                         st.session_state["pdf_text"] = extracted
-                        st.success("Text extracted. Check it carefully; tables and columns may not preserve their original layout.")
+                        st.session_state["pdf_extraction_method"] = extraction_method
+                        st.success(f"Text extracted using: {extraction_method}. Please check every value against the original report.")
                     else:
-                        st.warning("No selectable text found. This may be a scanned PDF; OCR is not included.")
+                        st.session_state.pop("pdf_text", None)
+                        st.warning("No text could be recognized. Try a sharper, well-lit image with the full page visible, or upload a clearer PDF.")
                 except (ValueError, RuntimeError) as exc:
-                    message = str(exc)
-                    if "not installed" in message.lower():
-                        st.error("PDF text reading isn't available in this installation yet. You can still upload a CSV report.")
-                    else:
-                        st.error("We couldn't read this PDF. Try a text-based PDF or use a CSV report instead.")
+                    st.error(f"Could not extract text: {exc}")
         if st.session_state.get("pdf_text"):
-            st.text_area("Extracted text", value=st.session_state["pdf_text"], height=260)
+            st.caption(st.session_state.get("pdf_extraction_method", "Extracted text") + " · OCR may misread decimals, units, and test names.")
+            st.text_area("Extracted text — verify against original", value=st.session_state["pdf_text"], height=300)
+            st.download_button("Download extracted text", data=st.session_state["pdf_text"].encode("utf-8"), file_name="mediscan_extracted_text.txt", mime="text/plain")
     if st.session_state.get("current_result") is not None:
         st.divider()
         render_analysis(st.session_state["current_result"], st.session_state["current_source_name"],
