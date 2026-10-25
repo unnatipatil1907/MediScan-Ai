@@ -47,7 +47,7 @@ SQLite database mediscan.db is created beside app.py on first launch. Analyze a 
 This is local storage, not cloud storage or a multi-user hosted backend.
 
 PDF LIMITATION
-PDF support extracts selectable text for manual review only. After a CSV report is analyzed, use Download printable PDF to create a readable A4 report suitable for saving or printing. Saved reports can also be downloaded as PDF. The PDF contains the supplied ranges and a prototype disclaimer; it is not a medical diagnosis. Scanned PDFs need OCR (not included), and arbitrary PDF tables are not automatically converted into structured lab rows.
+PDF/image uploads support selectable-text extraction and OCR for scanned PDFs and images. The app proposes result rows only when it detects a numeric result plus a printed numeric reference range. Users must review/correct every proposed row before analysis; arbitrary table layouts may not parse correctly. After analysis, use Download printable PDF to create an A4 report. Results are reference-range comparisons, not a medical diagnosis.
 
 MEDICAL SAFETY
 Hackathon prototype only; not clinically validated. It does not diagnose or prescribe. Use synthetic values for public demos. For real results, consult a qualified healthcare professional. The appointment checklist only helps users prepare questions; it is not a diagnosis or treatment plan.
@@ -57,4 +57,4 @@ If package installation fails, check internet/DNS and retry. Do not download pac
 
 
 OCR UPDATE (v2.5)
-The Analyze report > PDF / image OCR tab can extract text from scanned PDFs and PNG/JPG images. Streamlit Cloud needs packages.txt containing tesseract-ocr, plus pytesseract, PyMuPDF, and Pillow in requirements.txt. After uploading these files to GitHub, wait for Streamlit Cloud to redeploy. OCR output must be manually checked against the original report.
+The Analyze report > PDF / image OCR tab extracts text from scanned PDFs and PNG/JPG images, proposes candidate lab rows, and provides an editable table. Click Analyze extracted lab results after checking each test name, result, unit, and reference range. Streamlit Cloud needs packages.txt containing tesseract-ocr, plus pytesseract, PyMuPDF, and Pillow in requirements.txt. Wait for redeploy after uploading files. OCR output must be manually checked against the original report; the app never guesses reference ranges.

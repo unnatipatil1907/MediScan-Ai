@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import io
+import re
 import sqlite3
 from pathlib import Path
 
@@ -98,6 +99,53 @@ def extract_uploaded_document(file_bytes: bytes, filename: str) -> tuple[str, st
     except Exception as exc:
         raise ValueError(f"Could not read this file: {exc}") from exc
 
+
+
+def parse_lab_text(text: str) -> pd.DataFrame:
+    """Best-effort OCR parsing for rows with a printed numeric reference range.
+
+    Reference ranges are never guessed; proposed rows must be checked by the user.
+    """
+    rows = []
+    number = r"[+-]?(?:\d+(?:[.,]\d+)?|[.,]\d+)"
+    range_re = re.compile(rf"(?P<min>{number})\s*(?:-|–|—|to)\s*(?P<max>{number})", re.IGNORECASE)
+    for raw_line in text.splitlines():
+        line = re.sub(r"\s+", " ", raw_line).strip(" \t|:")
+        if not line or line.startswith("--- Page") or len(line) < 4:
+            continue
+        rm = range_re.search(line)
+        if not rm:
+            continue
+        before = line[:rm.start()].strip(" \t:|()[]")
+        # Match standalone numbers, not digits embedded in names such as B12.
+        # Use the first result-like number; digits later in units such as 10^3/uL
+        # must not be mistaken for the measured value. Skip common 25-OH name prefixes.
+        value_matches = [m for m in re.finditer(rf"(?<![A-Za-z]){number}", before)
+                         if not re.match(r"\s*-\s*OH\b", before[m.end():], re.IGNORECASE)]
+        if not value_matches:
+            continue
+        vm = value_matches[0]
+        test_name = before[:vm.start()].strip(" \t:|.-")
+        unit = before[vm.end():].strip(" \t:|,()[]")
+        if not test_name or len(test_name) < 2:
+            continue
+        if any(word in test_name.casefold() for word in ("reference range", "normal range", "result unit")):
+            continue
+        try:
+            value = float(vm.group().replace(",", "."))
+            min_value = float(rm.group("min").replace(",", "."))
+            max_value = float(rm.group("max").replace(",", "."))
+        except ValueError:
+            continue
+        if min_value > max_value:
+            continue
+        rows.append({"test": test_name, "value": value, "unit": unit or "unit not shown", "min": min_value, "max": max_value})
+    unique, seen = [], set()
+    for row in rows:
+        key = (row["test"].casefold(), row["value"], row["unit"].casefold(), row["min"], row["max"])
+        if key not in seen:
+            unique.append(row); seen.add(key)
+    return pd.DataFrame(unique, columns=["test", "value", "unit", "min", "max"])
 
 def render_analysis(df: pd.DataFrame, source_name: str, source_type: str, raw_bytes: bytes):
     summary = make_summary(df)
@@ -286,27 +334,73 @@ elif page == "Analyze report":
                     st.session_state.pop("processed_csv_signature", None)
                     st.error("We couldn't process this file. Check that it is a valid CSV and try again. If the problem continues, use the sample file.")
     with pdf_tab:
-        st.write("Upload a PDF or a clear photo of a lab report. Scanned pages and images are read with OCR. The extracted text is for manual review and is not automatically converted into trusted lab results.")
+        st.write("Upload a PDF or a clear photo of a lab report. MediScan extracts the text, detects lab results with printed numeric reference ranges, and automatically sends detected rows through the same report-analysis workflow as CSV uploads. Review and correct OCR values below. OCR can make mistakes, so verify every value against the original.")
         document_upload = st.file_uploader("Select a PDF or report image", type=["pdf", "png", "jpg", "jpeg", "tif", "tiff", "webp"], key="pdf_file")
-        if st.button("Extract text with OCR", type="primary"):
+        if st.button("Extract text and prepare analysis", type="primary", key="extract_prepare"):
             if document_upload is None:
-                st.error("Choose a PDF or image before clicking Extract text with OCR.")
+                st.error("Choose a PDF or image before extracting text.")
             else:
                 try:
                     extracted, extraction_method = extract_uploaded_document(document_upload.getvalue(), document_upload.name)
                     if extracted:
+                        # Clear the prior editable table so a newly uploaded file starts fresh.
+                        st.session_state.pop("ocr_candidate_editor", None)
                         st.session_state["pdf_text"] = extracted
                         st.session_state["pdf_extraction_method"] = extraction_method
-                        st.success(f"Text extracted using: {extraction_method}. Please check every value against the original report.")
+                        candidates = parse_lab_text(extracted)
+                        st.session_state["ocr_candidate_rows"] = candidates
+                        st.session_state["ocr_source_name"] = document_upload.name
+                        st.session_state["ocr_raw_bytes"] = document_upload.getvalue()
+                        # Connect OCR directly to the same analysis pipeline used by CSV/demo.
+                        # Only analyze rows where both a result and printed numeric range were detected.
+                        if not candidates.empty:
+                            try:
+                                analyzed = validate_and_analyze(candidates)
+                                st.session_state["current_result"] = analyzed
+                                st.session_state["current_source_name"] = document_upload.name
+                                st.session_state["current_source_type"] = "ocr"
+                                st.session_state["current_raw_bytes"] = document_upload.getvalue()
+                                st.success(f"Text extracted and {len(analyzed)} detected lab result(s) analyzed. Review the values below and correct any OCR mistakes.")
+                            except (ValueError, TypeError) as analysis_error:
+                                st.warning(f"Text was extracted, but automatic analysis needs review: {analysis_error}")
+                        else:
+                            st.warning("Text was extracted, but no lab rows with a result and printed numeric reference range were detected confidently. Please enter the values and ranges from the report in the table below; no ranges will be guessed.")
                     else:
                         st.session_state.pop("pdf_text", None)
+                        st.session_state.pop("ocr_candidate_rows", None)
                         st.warning("No text could be recognized. Try a sharper, well-lit image with the full page visible, or upload a clearer PDF.")
                 except (ValueError, RuntimeError) as exc:
                     st.error(f"Could not extract text: {exc}")
         if st.session_state.get("pdf_text"):
             st.caption(st.session_state.get("pdf_extraction_method", "Extracted text") + " · OCR may misread decimals, units, and test names.")
-            st.text_area("Extracted text — verify against original", value=st.session_state["pdf_text"], height=300)
+            st.text_area("Extracted text — verify against original", value=st.session_state["pdf_text"], height=240, key="ocr_extracted_text")
             st.download_button("Download extracted text", data=st.session_state["pdf_text"].encode("utf-8"), file_name="mediscan_extracted_text.txt", mime="text/plain")
+            st.markdown("**Step 2 — Review the detected lab results**")
+            candidates = st.session_state.get("ocr_candidate_rows")
+            if candidates is None or candidates.empty:
+                st.warning("Text was extracted, but no rows with both a result and printed numeric reference range were detected confidently. No ranges will be guessed. Enter the values and ranges from your report in the editable table below.")
+                candidates = pd.DataFrame([{"test": "", "value": None, "unit": "", "min": None, "max": None}], columns=["test", "value", "unit", "min", "max"])
+            st.caption("Correct any OCR mistakes. Only use reference ranges printed on your report.")
+            edited_candidates = st.data_editor(
+                candidates, key="ocr_candidate_editor", num_rows="dynamic", use_container_width=True,
+                hide_index=True, column_config={
+                    "test": st.column_config.TextColumn("Test name", required=True),
+                    "value": st.column_config.NumberColumn("Result", required=True),
+                    "unit": st.column_config.TextColumn("Unit", required=True),
+                    "min": st.column_config.NumberColumn("Reference minimum", required=True),
+                    "max": st.column_config.NumberColumn("Reference maximum", required=True),
+                },
+            )
+            if st.button("Analyze extracted lab results", type="primary", key="analyze_ocr_rows"):
+                try:
+                    result = validate_and_analyze(edited_candidates)
+                    st.session_state["current_result"] = result
+                    st.session_state["current_source_name"] = st.session_state.get("ocr_source_name", "OCR lab report")
+                    st.session_state["current_source_type"] = "ocr"
+                    st.session_state["current_raw_bytes"] = st.session_state.get("ocr_raw_bytes", st.session_state["pdf_text"].encode("utf-8"))
+                    st.success(f"Analyzed {len(result)} reviewed lab result(s).")
+                except (ValueError, TypeError) as exc:
+                    st.error(f"Could not analyze these rows: {exc}. Check that every row has a test name, result, unit, and valid minimum/maximum range.")
     if st.session_state.get("current_result") is not None:
         st.divider()
         render_analysis(st.session_state["current_result"], st.session_state["current_source_name"],
@@ -407,4 +501,4 @@ else:
     st.markdown("**Your privacy**")
     st.write("When you choose Save report, the report is stored on this computer so you can open it later. Avoid using identifiable patient information on a shared computer. Delete saved reports when you no longer need them.")
     st.markdown("**Using PDF files**")
-    st.write("MediScan can extract selectable text from some PDFs for you to review. It may not preserve table layout, and scanned PDFs may not work. Check extracted text carefully; CSV upload is the supported analysis workflow.")
+    st.write("MediScan can extract selectable PDF text and use OCR on scanned PDFs and image files. It may not preserve table layout. For PDF/image uploads, review and correct the proposed rows and their printed reference ranges before selecting Analyze extracted lab results. CSV upload is also supported.")
