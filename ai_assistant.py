@@ -7,7 +7,10 @@ try:
 except ImportError:
     AutoProcessor = None
     AutoModelForMultimodalLM = None
-from peft import PeftModel
+try:
+    from peft import PeftModel
+except ImportError:
+    PeftModel = None
 
 BASE_MODEL = "Qwen/Qwen3.5-2B"
 ADAPTER_PATH = "trained_model"
