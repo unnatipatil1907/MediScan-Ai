@@ -2,7 +2,11 @@
     import torch
 except ImportError:
     torch = None
-from transformers import AutoProcessor, AutoModelForMultimodalLM
+try:
+    from transformers import AutoProcessor, AutoModelForMultimodalLM
+except ImportError:
+    AutoProcessor = None
+    AutoModelForMultimodalLM = None
 from peft import PeftModel
 
 BASE_MODEL = "Qwen/Qwen3.5-2B"
