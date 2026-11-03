@@ -1,0 +1,37 @@
+MEDISCAN AI — LOCAL VERIFICATION REPORT
+
+Executed in this development environment:
+- Python syntax compilation for application and supporting modules: PASS
+- Automated test suite: 27 passed
+- Classification below, at minimum, within, at maximum, and above supplied ranges: PASS
+- Missing required columns, duplicate headers, blank test/unit, missing/non-numeric/non-finite values: PASS
+- Reversed reference ranges and malformed CSV quoting/row widths: PASS
+- UTF-8 BOM and case-insensitive headers: PASS
+- CSV result export content: PASS (unit test)
+- SQLite report save/retrieve through fresh connections: PASS
+- SQLite report deletion and cascading result deletion: PASS (unit test)
+- Printable PDF generation: PASS (unit test)
+- Saved-report comparison and ambiguous-match exclusion: PASS (unit tests)
+- Appointment discussion checklist for flagged and in-range results: PASS (unit tests)
+- Navigation fix reviewed in source: request is applied before the keyed radio widget is instantiated.
+- User-facing screens revised to remove developer-oriented database paths, hashes, and internal validation counters.
+- Smart Report Insights, file checks, PDF export, and appointment checklist are present in source.
+- ZIP archive integrity: verified after packaging.
+
+Not verified in this environment:
+- Streamlit application launch and browser-based dashboard/button/file-upload interaction: Streamlit is not installed in this runtime.
+- End-to-end visual rendering in a browser: not tested.
+- Windows launcher execution: this runtime is not Windows.
+- PDF extraction through the live UI: not end-to-end tested.
+- Clinical correctness: not clinically validated.
+
+Run on a machine with project dependencies installed:
+    python -m pytest -q
+    python -m streamlit run app.py
+
+Do not describe the app as clinically validated. Use synthetic data for public demos.
+
+
+FOLLOW-UP CHANGE (2026-10-25)
+- CSV upload flow changed to analyze automatically when a new/changed file is uploaded; no separate Process CSV button is required.
+- This UI change was syntax-checked after editing; interactive browser testing still needs to be completed on a machine with Streamlit installed.

@@ -1,0 +1,26 @@
+MEDISCAN AI — 2-MINUTE JUDGE DEMO
+
+0:00–0:15 | Introduction
+"MediScan AI is a healthcare hackathon prototype that helps organize lab report values into transparent reference-range checks. It is designed to support review, not to diagnose."
+
+0:15–0:35 | Synthetic data
+"I will use this synthetic report. These values are fabricated for the demo and are not from a real patient."
+
+0:35–0:55 | Process and validation
+"The CSV workflow has a visible Process CSV button. Before analysis, the app checks the required headers, test names, numeric values, and valid minimum/maximum ranges."
+
+0:55–1:15 | Explainable results
+"Each value is compared against the range provided in the same file. The app labels it Low, In range, or High and shows the supplied range, so the logic is auditable."
+
+1:15–1:35 | Persistent backend
+"The analyzed report can be saved to a local SQLite database. Saved history survives an app restart, and I can reopen a saved report or download it."
+
+1:35–1:50 | PDF and export
+"The app extracts selectable text from text-based PDFs for manual review. It does not pretend every PDF table can be parsed reliably. Analyzed CSV files can be downloaded."
+
+1:50–2:00 | Safety
+"This is not clinically validated and does not diagnose or prescribe. Real results must be interpreted by a qualified healthcare professional. Future work includes OCR, secure multi-user hosting, and validation with appropriate clinical oversight."
+
+
+ADDITIONAL DEMO MOMENT
+After processing the synthetic CSV, show the printable PDF export alongside the analyzed CSV. Explain that CSV is useful for spreadsheets, while PDF is designed to read, save, or print. Then show saved-history search and reopen a report. The app compares only against reference ranges supplied in the input and is not clinically validated.
