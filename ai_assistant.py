@@ -1,4 +1,7 @@
-﻿import torch
+﻿try:
+    import torch
+except ImportError:
+    torch = None
 from transformers import AutoProcessor, AutoModelForMultimodalLM
 from peft import PeftModel
 
