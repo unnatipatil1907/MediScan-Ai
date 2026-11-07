@@ -80,3 +80,27 @@ def ask_assistant(question):
 
     except Exception as e:
         return f"Unexpected Error: {str(e)}"
+
+
+def test_adaption_connection():
+    api_key = get_secret("ADAPTION_API_KEY")
+
+    url = "https://api.prod.adaptionlabs.ai/api/v1/models"
+
+    try:
+        response = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=30
+        )
+
+        if response.status_code == 200:
+            return response.json()
+
+        return {
+            "status": response.status_code,
+            "error": response.text[:1000]
+        }
+
+    except Exception as e:
+        return {"error": str(e)}
