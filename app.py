@@ -11,7 +11,11 @@ from analysis import REQUIRED, validate_and_analyze, make_summary, read_csv_byte
 from storage import DB_PATH, db_connect, init_db, save_report, get_history, get_report
 from reporting import build_pdf_report
 from appointment_prep import make_appointment_checklist
-from ai_assistant import assistant_is_configured, ask_assistant
+from ai_assistant import (
+    assistant_is_configured,
+    ask_assistant,
+    test_adaption_connection
+)
 
 try:
     from pypdf import PdfReader
