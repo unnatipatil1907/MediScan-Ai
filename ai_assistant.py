@@ -1,114 +1,76 @@
 
-try:
-    import torch
-except ImportError:
-    torch = None
-
-try:
-    from transformers import AutoProcessor, AutoModelForMultimodalLM
-except ImportError:
-    AutoProcessor = None
-    AutoModelForMultimodalLM = None
-
-try:
-    from peft import PeftModel
-except ImportError:
-    PeftModel = None
+import os
+import requests
+import streamlit as st
 
 
-BASE_MODEL = "Qwen/Qwen3.5-2B"
-ADAPTER_PATH = "trained_model"
-
-_model = None
-_processor = None
+def get_secret(name):
+    return st.secrets.get(name, os.getenv(name, ""))
 
 
 def assistant_is_configured():
-    return (
-        torch is not None
-        and AutoProcessor is not None
-        and AutoModelForMultimodalLM is not None
-        and PeftModel is not None
+    return bool(
+        get_secret("ADAPTION_API_KEY")
+        and get_secret("ADAPTION_MODEL_ID")
     )
 
 
-def load_model():
-    global _model, _processor
-
-    if not assistant_is_configured():
-        raise RuntimeError(
-            "AI Assistant dependencies are unavailable. "
-            "Please use the main medical report analysis feature."
-        )
-
-    if _model is None:
-        print("Loading MediScan AI model...")
-
-        _processor = AutoProcessor.from_pretrained(BASE_MODEL)
-
-        base = AutoModelForMultimodalLM.from_pretrained(
-            BASE_MODEL,
-            dtype="auto",
-            low_cpu_mem_usage=True
-        )
-
-        _model = PeftModel.from_pretrained(
-            base,
-            ADAPTER_PATH
-        )
-
-        _model.eval()
-
-        print("MediScan AI model loaded!")
-
-    return _model, _processor
-
-
 def ask_assistant(question):
+    api_key = get_secret("ADAPTION_API_KEY")
+    model_id = get_secret("ADAPTION_MODEL_ID")
+
+    if not api_key or not model_id:
+        return (
+            "AI connection is not configured. "
+            "Please configure the Adaption API key and model ID."
+        )
+
+    url = "https://api.prod.adaptionlabs.ai/api/v1/responses"
+
+    headers = {
+        "Authorization": f"Bearer {api_key}",
+        "Content-Type": "application/json"
+    }
+
+    payload = {
+        "model": model_id,
+        "instructions": (
+            "You are MediScan AI, a medical laboratory report "
+            "explanation assistant. Explain HbA1c, lipid profile, "
+            "liver function and other laboratory results in simple "
+            "language. Never diagnose or prescribe treatment. "
+            "Encourage users to consult qualified healthcare "
+            "professionals."
+        ),
+        "input": question,
+        "temperature": 0.3,
+        "max_output_tokens": 800
+    }
+
     try:
-        if torch is None:
-            return "AI Assistant is unavailable. PyTorch is not installed."
-
-        model, processor = load_model()
-
-        messages = [{
-            "role": "user",
-            "content": [{
-                "type": "text",
-                "text": (
-                    "You are MediScan AI, an assistant that explains "
-                    "medical report information in simple language. "
-                    "Explain results carefully. Do not diagnose or "
-                    "prescribe medicines. Recommend discussing "
-                    "concerning results with a qualified healthcare "
-                    "professional.\n\n"
-                    + str(question)
-                )
-            }]
-        }]
-
-        inputs = processor.apply_chat_template(
-            messages,
-            add_generation_prompt=True,
-            tokenize=True,
-            return_dict=True,
-            return_tensors="pt"
+        response = requests.post(
+            url,
+            headers=headers,
+            json=payload,
+            timeout=90
         )
 
-        with torch.no_grad():
-            outputs = model.generate(
-                **inputs,
-                max_new_tokens=100,
-                do_sample=False,
-                use_cache=True
-            )
+        response.raise_for_status()
+        data = response.json()
 
-        answer = processor.decode(
-            outputs[0][inputs["input_ids"].shape[-1]:],
-            skip_special_tokens=True
-        )
+        for item in data.get("output", []):
+            if item.get("type") == "message":
+                for content in item.get("content", []):
+                    if content.get("type") == "output_text":
+                        return content.get("text", "")
 
-        return answer.strip()
+        return "The AI returned no readable response."
 
-    except Exception as e:
-        return f"AI loading or response error: {e}"
+    except requests.exceptions.Timeout:
+        return "AI request timed out. Please try again."
+
+    except requests.exceptions.RequestException:
+        return "AI connection failed. Please check your API settings."
+
+    except Exception:
+        return "Something went wrong while processing your question."
