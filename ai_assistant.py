@@ -66,11 +66,17 @@ def ask_assistant(question):
 
         return "The AI returned no readable response."
 
+    
     except requests.exceptions.Timeout:
         return "AI request timed out. Please try again."
 
-    except requests.exceptions.RequestException:
-        return "AI connection failed. Please check your API settings."
+    except requests.exceptions.HTTPError as e:
+        status = e.response.status_code if e.response else "Unknown"
+        details = e.response.text[:1000] if e.response else str(e)
+        return f"Adaption API Error ({status}): {details}"
 
-    except Exception:
-        return "Something went wrong while processing your question."
+    except requests.exceptions.RequestException as e:
+        return f"Connection Error: {str(e)}"
+
+    except Exception as e:
+        return f"Unexpected Error: {str(e)}"
