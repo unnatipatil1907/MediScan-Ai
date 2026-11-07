@@ -104,3 +104,27 @@ def test_adaption_connection():
 
     except Exception as e:
         return {"error": str(e)}
+
+
+def test_adaption_connection():
+    api_key = get_secret("ADAPTION_API_KEY")
+
+    if not api_key:
+        return "API key is missing."
+
+    url = "https://api.prod.adaptionlabs.ai/api/v1/models"
+
+    try:
+        response = requests.get(
+            url,
+            headers={"Authorization": f"Bearer {api_key}"},
+            timeout=30
+        )
+
+        return {
+            "status": response.status_code,
+            "result": response.text[:3000]
+        }
+
+    except Exception as e:
+        return str(e)
